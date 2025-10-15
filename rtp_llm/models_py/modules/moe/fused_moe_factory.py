@@ -36,9 +36,7 @@ def init_deepep_env_once(config: GptInitModelParameters):
 
 class FusedMoeFactory(object):
     @staticmethod
-    def _create_fp8_per_block_fused_moe(
-        config: GptInitModelParameters, weights: Dict[str, torch.Tensor]
-    ):
+    def _create_fp8_per_block_fused_moe(config: GptInitModelParameters, weights: Dict[str, torch.Tensor]):
         assert utils.is_cuda(), "FP8_PER_BLOCK only supports cuda"
         # single gpu
         if config.ep_size == 1 or config.tp_size == config.ep_size:
@@ -66,16 +64,12 @@ class FusedMoeFactory(object):
                 router = DeepEpLowLatencyRouter(
                     config,
                     use_fp8_dispatch=True,
-                    zero_copy=False,
-                    async_finish=False,
-                    return_recv_hook=False,
+                    return_recv_hook=config.gpt_init_params.device_resource_config.enable_comm_overlap,
                 )
                 executor = DeepGemmMaskedExecutor(
                     config,
                     weights,
-                    quant_config=FusedMoEQuantConfig(
-                        quant_dtype=torch.float8_e4m3fn, block_shape=[128, 128]
-                    ),
+                    quant_config=FusedMoEQuantConfig(quant_dtype=torch.float8_e4m3fn, block_shape=[128, 128]),
                 )
                 return FusedMoe(router, executor, expert_num=config.expert_num)
             else:
@@ -91,9 +85,7 @@ class FusedMoeFactory(object):
                 return FusedMoe(router, executor, config.expert_num)
 
     @staticmethod
-    def _create_fp8_per_tensor_fused_moe(
-        config: GptInitModelParameters, weights: Dict[str, torch.Tensor]
-    ):
+    def _create_fp8_per_tensor_fused_moe(config: GptInitModelParameters, weights: Dict[str, torch.Tensor]):
         assert utils.is_cuda(), "FP8_PER_TENSOR only supports cuda"
         from rtp_llm.models_py.modules.moe.cutlass_moe import (
             CutlassBatchedExpertsFp8,
@@ -109,10 +101,12 @@ class FusedMoeFactory(object):
         if config.ep_size > 1:
             init_deepep_env_once(config)
             if config.moe_config.use_deepep_low_latency:
-                max_num_tokens = (
-                    config.max_generate_batch_size + config.tp_size - 1
-                ) // config.tp_size
-                router = DeepEpLowLatencyRouter(config, use_fp8_dispatch=True)
+                max_num_tokens = (config.max_generate_batch_size + config.tp_size - 1) // config.tp_size
+                router = DeepEpLowLatencyRouter(
+                    config,
+                    use_fp8_dispatch=True,
+                    return_recv_hook=config.gpt_init_params.device_resource_config.enable_comm_overlap,
+                )
                 executor = CutlassBatchedExpertsFp8(
                     max_num_tokens=max_num_tokens,
                     num_dispatchers=config.world_size // config.tp_size,
@@ -151,9 +145,7 @@ class FusedMoeFactory(object):
         return FusedMoe(router, executor, config.expert_num)
 
     @staticmethod
-    def create_fused_moe(
-        config: GptInitModelParameters, weights: Dict[str, torch.Tensor]
-    ) -> FusedMoe:
+    def create_fused_moe(config: GptInitModelParameters, weights: Dict[str, torch.Tensor]) -> FusedMoe:
         # TODO get_method should return enu class other than string
         if config.quant_config is None:
             if config.ep_size > 1 and config.moe_config.use_deepep_low_latency:
@@ -168,9 +160,7 @@ class FusedMoeFactory(object):
                 router = DeepEpLowLatencyRouter(
                     config,
                     use_fp8_dispatch=False,
-                    zero_copy=False,
-                    async_finish=False,
-                    return_recv_hook=False,
+                    return_recv_hook=config.gpt_init_params.device_resource_config.enable_comm_overlap,
                 )
                 executor = DeepGemmMaskedExecutor(
                     config,
@@ -183,9 +173,7 @@ class FusedMoeFactory(object):
                     BatchedTritonExperts,
                 )
 
-                max_num_tokens = (
-                    config.max_generate_batch_size + config.tp_size - 1
-                ) // config.tp_size
+                max_num_tokens = (config.max_generate_batch_size + config.tp_size - 1) // config.tp_size
                 router = BatchedDataRouter(
                     max_num_tokens=max_num_tokens,
                     num_local_experts=config.expert_num,
@@ -207,6 +195,4 @@ class FusedMoeFactory(object):
         ]:
             return FusedMoeFactory._create_fp8_per_tensor_fused_moe(config, weights)
         else:
-            raise ValueError(
-                f"Unsupported quantization method: {config.quant_config.get_method()}"
-            )
+            raise ValueError(f"Unsupported quantization method: {config.quant_config.get_method()}")

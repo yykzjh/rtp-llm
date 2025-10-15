@@ -2,13 +2,14 @@ from typing import Optional
 
 from torch import nn
 
+from rtp_llm.models_py.model_desc.module_base import GptModelBase
+from rtp_llm.config.gpt_init_model_parameters import GptInitModelParameters
 from rtp_llm.models_py.batch_overlap.operations import convert_operations_to_stages
 from rtp_llm.models_py.batch_overlap.strategy import (
     OperationStrategy,
     StageStrategy,
     create_qwen3_moe_layer_operation_strategy,
 )
-from rtp_llm.config.gpt_init_model_parameters import GptInitModelParameters
 
 
 __all__ = [
@@ -20,13 +21,13 @@ class StrategyFactory:
 
     @staticmethod
     def create_stage_strategy(
-        config: GptInitModelParameters, layers: nn.ModuleList, stage_delta: Optional[int] = None
+        config: GptInitModelParameters, model: GptModelBase, layers: nn.ModuleList, stage_delta: Optional[int] = None
     ) -> StageStrategy:
         layer_name = layers[0].__class__.__name__
         if layer_name == "Qwen3MoeDecoderLayer":
             qwen3_moe_model_operation_strategy = OperationStrategy.concat(
                 [
-                    create_qwen3_moe_layer_operation_strategy(layer, layer_id, config.role_type)
+                    create_qwen3_moe_layer_operation_strategy(model, layer, layer_id, len(layers), config.role_type)
                     for layer_id, layer in enumerate(layers)
                 ]
             )

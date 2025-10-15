@@ -87,13 +87,13 @@ class StageExecutor:
 
     def initialize(self, stage_input: PyModelInputs):
         self._index = 0
-        self._stage_output = stage_input
+        self._stage_output = {"stage_input": stage_input}
         self._stage_state.clear(expect_keys=[])
 
     @property
     def output(self):
         assert self.done
-        return self._stage_output
+        return self._stage_output["stage_output"]
 
     @property
     def done(self):

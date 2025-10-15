@@ -1,7 +1,8 @@
-from typing import List, Dict, Any, Optional, Sequence
+from typing import List, Optional, Sequence
 
 from torch import nn
 
+from rtp_llm.models_py.model_desc.module_base import GptModelBase
 from rtp_llm.ops.libth_transformer import PyModelInputs, PyModelOutputs
 from rtp_llm.config.gpt_init_model_parameters import GptInitModelParameters
 from rtp_llm.models_py.batch_overlap.stage_executor import StageExecutor
@@ -11,7 +12,11 @@ from rtp_llm.models_py.batch_overlap.strategy_factory import StrategyFactory
 class MicroBatchExecutor:
 
     def __init__(
-        self, config: GptInitModelParameters, layers: nn.ModuleList, stage_deltas: Optional[Sequence[int]] = None
+        self,
+        config: GptInitModelParameters,
+        model: GptModelBase,
+        layers: nn.ModuleList,
+        stage_deltas: Optional[Sequence[int]] = None,
     ):
         # Initialize arguments
         self._config = config
@@ -27,7 +32,7 @@ class MicroBatchExecutor:
         # Initialize strategy with specified stage_deltas
         self._stage_strategies = [
             StrategyFactory.create_stage_strategy(
-                self._config, layers, stage_deltas[micro_batch_idx] if stage_deltas is not None else None
+                self._config, model, layers, stage_deltas[micro_batch_idx] if stage_deltas is not None else None
             )
             for micro_batch_idx in range(self._num_micro_batches)
         ]
