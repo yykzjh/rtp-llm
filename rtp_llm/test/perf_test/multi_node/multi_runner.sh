@@ -11,7 +11,9 @@ multi_build_script() {
         scp -P ${SSH_PORT} multi_local_executor.sh $RUN_USER@$IP:/tmp/multi_local_executor.sh && \
         ssh $RUN_USER@$IP -p ${SSH_PORT} \
         "FT_SUB_DIR=${FT_SUB_DIR} \
+        GIT_REPO_URL=${GIT_REPO_URL} \
         GIT_CHECKOUT_REF=${GIT_CHECKOUT_REF} \
+        OPEN_SOURCE_REF=${OPEN_SOURCE_REF} \
         BAZEL_BUILD_ARGS=${BAZEL_BUILD_ARGS} \
         BUILD_FROM_SCRATCH=${BUILD_FROM_SCRATCH} \
         SUB_CMD=${SUB_CMD} \
@@ -128,6 +130,7 @@ multi_test_script() {
         REDUNDANT_EXPERT=${REDUNDANT_EXPERT:-0} \
         ACCL_DISPATCH_NUM_WARP_GROUPS=${ACCL_DISPATCH_NUM_WARP_GROUPS:-4} \
         ACCL_COMBINE_NUM_WARP_GROUPS=${ACCL_COMBINE_NUM_WARP_GROUPS:-4} \
+        ACCL_FP8_CAST_LEVEL=${ACCL_FP8_CAST_LEVEL:-1} \
         ACCL_SOFT_TX_DEPTH=${ACCL_SOFT_TX_DEPTH:-} \
         ACCL_MAX_USER_MR_GB=${ACCL_MAX_USER_MR_GB:-} \
         HACK_EP_SINGLE_ENTRY=${HACK_EP_SINGLE_ENTRY:-0} \
@@ -141,8 +144,9 @@ multi_test_script() {
         BATCH_SIZE_LIST=${BATCH_SIZE_LIST} \
         INPUT_LEN_LIST=${INPUT_LEN_LIST} \
         DECODE_TEST_LENGTH=${DECODE_TEST_LENGTH} \
-        GIT_CHECKOUT_REF=${GIT_CHECKOUT_REF} \
         GIT_REPO_URL=${GIT_REPO_URL} \
+        GIT_CHECKOUT_REF=${GIT_CHECKOUT_REF} \
+        OPEN_SOURCE_REF=${OPEN_SOURCE_REF} \
         BAZEL_BUILD_ARGS=${BAZEL_BUILD_ARGS} \
         SUB_CMD=${SUB_CMD} \
         bash /tmp/multi_local_executor.sh"

@@ -37,12 +37,15 @@ checkout_code() {
   fi
   cd RTP-LLM;
   (git fetch origin && git reset --hard $GIT_CHECKOUT_REF) || exit 1;
+  git submodule sync --recursive || exit 1;
+  sh ./scripts/create_symlinks.sh $OPEN_SOURCE_REF UNKNOWN true true || exit 1;
+  cd github-opensource;
 }
 
 install_requirements() {
   if [ "${BUILD_FROM_SCRATCH:-2}" -gt 1 ]; then
     # pip install requirements
-    /opt/conda310/bin/python3 -m pip install -r ./deps/requirements_lock_torch_gpu_cuda12.txt
+    /opt/conda310/bin/python3 -m pip install -r ./internal_source/deps/requirements_lock_torch_gpu_cuda12.txt
   fi
 }
 
@@ -57,9 +60,9 @@ build_code() {
     fi
 
     # create symbolic links for proto files
-    ln -sf ../../../bazel-out/k8-opt/bin/rtp_llm/cpp/proto/model_rpc_service_pb2_grpc.py rtp_llm/cpp/proto/;
-    ln -sf ../../../bazel-out/k8-opt/bin/rtp_llm/cpp/proto/model_rpc_service_pb2.py rtp_llm/cpp/proto/;
-    ln -sf ../../../bazel-bin/rtp_llm/cpp/deep_gemm/cutlass_hdr rtp_llm/cpp/deep_gemm/cutlass_hdr;
+    ln -sf ../../../../bazel-out/k8-opt/bin/rtp_llm/cpp/model_rpc/proto/model_rpc_service_pb2_grpc.py rtp_llm/cpp/model_rpc/proto/;
+    ln -sf ../../../../bazel-out/k8-opt/bin/rtp_llm/cpp/model_rpc/proto/model_rpc_service_pb2.py rtp_llm/cpp/model_rpc/proto/;
+    ln -sf ../../../../bazel-out/k8-opt/bin/rtp_llm/cpp/cuda/deep_gemm/cutlass_hdr rtp_llm/cpp/cuda/deep_gemm/cutlass_hdr;
   fi
 }
 
