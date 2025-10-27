@@ -66,9 +66,7 @@ class FusedMoeFactory(object):
                 router = DeepEpLowLatencyRouter(
                     config,
                     use_fp8_dispatch=True,
-                    zero_copy=False,
-                    async_finish=False,
-                    return_recv_hook=False,
+                    return_recv_hook=config.gpt_init_params.device_resource_config.enable_comm_overlap,
                 )
                 executor = DeepGemmMaskedExecutor(
                     config,
@@ -112,7 +110,11 @@ class FusedMoeFactory(object):
                 max_num_tokens = (
                     config.max_generate_batch_size + config.tp_size - 1
                 ) // config.tp_size
-                router = DeepEpLowLatencyRouter(config, use_fp8_dispatch=True)
+                router = DeepEpLowLatencyRouter(
+                    config,
+                    use_fp8_dispatch=True,
+                    return_recv_hook=config.gpt_init_params.device_resource_config.enable_comm_overlap,
+                )
                 executor = CutlassBatchedExpertsFp8(
                     max_num_tokens=max_num_tokens,
                     num_dispatchers=config.world_size // config.tp_size,
@@ -168,9 +170,7 @@ class FusedMoeFactory(object):
                 router = DeepEpLowLatencyRouter(
                     config,
                     use_fp8_dispatch=False,
-                    zero_copy=False,
-                    async_finish=False,
-                    return_recv_hook=False,
+                    return_recv_hook=config.gpt_init_params.device_resource_config.enable_comm_overlap,
                 )
                 executor = DeepGemmMaskedExecutor(
                     config,

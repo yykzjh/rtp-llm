@@ -1,11 +1,13 @@
 import logging
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import torch
 from torch import nn
 
 from rtp_llm.config.gpt_init_model_parameters import GptInitModelParameters
 from rtp_llm.model_loader.model_weight_info import ModelWeights
+from rtp_llm.models_py.batch_overlap.micro_batch_executor import MicroBatchExecutor
+from rtp_llm.models_py.batch_overlap.stage_executor import StateDict
 from rtp_llm.models_py.model_desc.module_base import GptModelBase
 from rtp_llm.models_py.modules.attention import CausalAttention
 from rtp_llm.models_py.modules.embedding import Embedding
@@ -80,6 +82,30 @@ class Qwen3MoeLayer(nn.Module):
             expert_map=self.expert_map,
         )
 
+    def op_gate(self, state: StateDict, hidden_states: torch.Tensor):
+        router_logits = self.gate(hidden_states).float()
+        return {"router_logits": router_logits, "hidden_states": hidden_states}
+
+    def op_select_topk_experts(
+        self, state: StateDict, router_logits: torch.Tensor, hidden_states: torch.Tensor
+    ):
+        num_tokens = hidden_states.shape[0]
+        topk_weights = torch.zeros(
+            (num_tokens, self.top_k),
+            dtype=torch.float32,
+            device=hidden_states.device,
+        )
+        topk_ids = torch.zeros(
+            (num_tokens, self.top_k),
+            dtype=torch.int64,
+            device=hidden_states.device,
+        )
+        self.select_topk_op.forward(router_logits, topk_ids, topk_weights)
+        state.topk_ids = topk_ids
+        state.topk_weights = topk_weights
+        state.quant_config = self.fused_moe.fused_experts.quant_config
+        return {"hidden_states": hidden_states}
+
 
 class Qwen3MoeDecoderLayer(nn.Module):
     def __init__(
@@ -124,6 +150,25 @@ class Qwen3MoeDecoderLayer(nn.Module):
 
         return hidden_states
 
+    def op_store_residual(self, state: StateDict, hidden_states: torch.Tensor):
+        state.residual = hidden_states
+        return {"hidden_states": hidden_states}
+
+    def op_add_residual(self, state: StateDict, hidden_states: torch.Tensor):
+        residual = state.pop("residual")
+        hidden_states = residual + hidden_states
+        return {"hidden_states": hidden_states}
+
+    def op_input_layernorm(self, state: StateDict, hidden_states: torch.Tensor):
+        hidden_states = self.input_layernorm(hidden_states)
+        return {"hidden_states": hidden_states}
+
+    def op_post_attention_layernorm(
+        self, state: StateDict, hidden_states: torch.Tensor
+    ):
+        hidden_states = self.post_attention_layernorm(hidden_states)
+        return {"hidden_states": hidden_states}
+
 
 class Qwen3MoeModel(GptModelBase):
     def __init__(self, config: GptInitModelParameters, weights: ModelWeights):
@@ -135,9 +180,12 @@ class Qwen3MoeModel(GptModelBase):
                 for idx in range(self.layer_num)
             ]
         )
-        self.norm = RMSNorm(
-            weights.get_global_weight(W.final_ln_gamma), eps=config.layernorm_eps
-        )
+        if config.gpt_init_params.device_resource_config.enable_layer_micro_batch == 0:
+            self.norm = RMSNorm(
+                weights.get_global_weight(W.final_ln_gamma), eps=config.layernorm_eps
+            )
+        else:
+            self.micro_batch_executor = MicroBatchExecutor(config, self, self.layers)
 
     def forward(self, inputs: PyModelInputs) -> PyModelOutputs:
         input_ids: torch.Tensor = inputs.input_ids
@@ -154,3 +202,26 @@ class Qwen3MoeModel(GptModelBase):
             )
         hidden_states = self.norm(hidden_states)
         return PyModelOutputs(hidden_states, fmha_impl.fmha_params)
+
+    def op_prepare_forward(self, state: StateDict, stage_input: PyModelInputs):
+        state.update(
+            {
+                "fmha_impl": self.get_fmha_impl(stage_input.attention_inputs),
+                "kv_cache": self.kv_cache if self.kv_cache else None,
+                "layer_idx": 0,
+            }
+        )
+        return {"input_ids": stage_input.input_ids}
+
+    def op_embed_tokens(self, state: StateDict, input_ids: torch.Tensor):
+        return {"hidden_states": self.embed_tokens(input_ids)}
+
+    def op_finalize_forward(self, state: StateDict, hidden_states: torch.Tensor):
+        state.pop("fmha_impl")
+        state.pop("kv_cache")
+        state.pop("layer_idx")
+        stage_output = PyModelOutputs(hidden_states)
+        return {"stage_output": stage_output}
+
+    def forward_micro_batch(self, inputs: List[PyModelInputs]) -> List[PyModelOutputs]:
+        return self.micro_batch_executor.tbo_execute(inputs)

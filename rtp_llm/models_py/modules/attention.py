@@ -5,6 +5,7 @@ import torch.nn as nn
 
 from rtp_llm.config.gpt_init_model_parameters import GptInitModelParameters
 from rtp_llm.distribute.collective import Group, all_reduce
+from rtp_llm.models_py.batch_overlap.stage_executor import StateDict
 from rtp_llm.models_py.modules import FusedQKRMSNorm
 from rtp_llm.models_py.modules.fmha import FMHAImplBase
 from rtp_llm.models_py.modules.linear_factory import LinearFactory
@@ -59,3 +60,31 @@ class CausalAttention(nn.Module):
         if self.config.tp_size > 1:
             output = all_reduce(output, group=Group.TP)
         return output
+
+    def op_qkv_proj(self, state: StateDict, hidden_states: torch.Tensor):
+        state.input_shape = hidden_states.shape[:-1]
+        return {"qkv": self.qkv_proj(hidden_states)}
+
+    def op_qk_fuse_norm(self, state: StateDict, qkv: torch.Tensor):
+        if self.qk_fuse_norm is not None:
+            qkv = self.qk_fuse_norm(qkv)
+        return {"qkv": qkv}
+
+    def op_fmha_impl(self, state: StateDict, qkv: torch.Tensor):
+        input_shape = state.pop("input_shape")
+        current_layer_kv_cache = (
+            state.kv_cache.get_layer_cache(state.layer_idx) if state.kv_cache else None
+        )
+        state.layer_idx += 1
+        attn_output = state.fmha_impl.forward(qkv, current_layer_kv_cache)
+        attn_output = attn_output.reshape(*input_shape, -1).contiguous()
+        return {"attn_output": attn_output}
+
+    def op_o_proj(self, state: StateDict, attn_output: torch.Tensor):
+        hidden_states = self.o_proj(attn_output)
+        return {"hidden_states": hidden_states}
+
+    def op_all_reduce(self, state: StateDict, hidden_states: torch.Tensor):
+        if self.config.tp_size > 1:
+            hidden_states = all_reduce(hidden_states, group=Group.TP)
+        return {"hidden_states": hidden_states}
